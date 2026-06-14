@@ -1,0 +1,93 @@
+# Route Definitions for Semantic Router
+#
+# Each agent defines:
+#   - name: unique identifier used in task packets
+#   - description: human-readable purpose (for documentation)
+#   - utterances: example queries that should route to this agent
+#
+# Tuning tips:
+#   - Add 10-20 diverse utterances per route for best coverage
+#   - Use natural phrasing, not keywords
+#   - Test with `python -m router_pkg.test_routes` after changes
+#   - Check confidence distribution in logs
+
+routes:
+  - name: code_agent
+    description: Handles code generation, debugging, refactoring, and testing tasks
+    utterances:
+      - "write a function that"
+      - "debug this code"
+      - "refactor this class"
+      - "add unit tests for"
+      - "fix the bug in"
+      - "implement an API endpoint"
+      - "create a Python script to"
+      - "optimize this algorithm"
+      - "add error handling to"
+      - "write a decorator that"
+      - "implement the interface for"
+      - "create a class that handles"
+      - "convert this code to async"
+      - "add type hints to this function"
+      - "write integration tests for"
+
+  - name: search_agent
+    description: Handles information retrieval, documentation lookup, and research tasks
+    utterances:
+      - "find information about"
+      - "search for recent"
+      - "what does the documentation say"
+      - "look up"
+      - "retrieve context on"
+      - "find examples of"
+      - "search the codebase for"
+      - "what is the best practice for"
+      - "find related articles about"
+      - "get the latest info on"
+      - "research how to"
+      - "find documentation for"
+      - "look for tutorials on"
+      - "search for implementations of"
+      - "what are the options for"
+
+  - name: data_agent
+    description: Handles database queries, data transformation, and analysis tasks
+    utterances:
+      - "query the database"
+      - "transform this CSV"
+      - "aggregate results from"
+      - "write a SQL query"
+      - "parse this JSON"
+      - "analyze this dataset"
+      - "extract data from"
+      - "calculate the average of"
+      - "filter records where"
+      - "join these tables"
+      - "export data to"
+      - "validate this schema"
+      - "clean this data"
+      - "pivot this table"
+      - "group by and summarize"
+
+# ── Routing Thresholds ────────────────────────────────────────────────────────
+# Confidence score determines routing behavior:
+#   >= high_threshold: route directly to specialist
+#   >= medium_threshold: head agent decides
+#   < medium_threshold: head agent handles with LLM planning
+
+thresholds:
+  high: 0.75
+  medium: 0.45
+
+# ── Encoder Settings ──────────────────────────────────────────────────────────
+# FastEmbed runs locally (~90MB model, no GPU needed)
+
+encoder:
+  type: fastembed
+  model: BAAI/bge-small-en-v1.5  # default model, can override
+
+# ── Fallback Route ────────────────────────────────────────────────────────────
+# When no route matches or confidence is below medium threshold
+
+fallback:
+  route: head_agent

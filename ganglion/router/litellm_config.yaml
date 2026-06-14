@@ -1,0 +1,66 @@
+# LiteLLM Configuration for Ganglion
+#
+# Maps model tier labels to actual model endpoints.
+# Agents call select_model() which returns: local, mid, or cloud
+# LiteLLM resolves these to actual API endpoints.
+#
+# Environment variables:
+#   DEEPSEEK_KEY - API key for DeepSeek
+#   ANTHROPIC_API_KEY - API key for Anthropic Claude
+#   REDIS_URL - Redis connection URL for semantic cache (optional)
+
+model_list:
+  # ── Local tier ──────────────────────────────────────────────────────────────
+  # Simple tasks - runs on local Ollama instance
+  # No API costs, fastest latency, good for boilerplate
+  - model_name: local
+    litellm_params:
+      model: ollama/codestral
+      api_base: http://localhost:11434
+
+  # ── Mid tier ────────────────────────────────────────────────────────────────
+  # Moderate complexity - balance of cost and capability
+  - model_name: mid
+    litellm_params:
+      model: deepseek/deepseek-coder
+      api_key: os.environ/DEEPSEEK_KEY
+
+  # ── Cloud tier ──────────────────────────────────────────────────────────────
+  # Complex/ambiguous tasks - highest quality
+  # Required for interleaved_thinking mode
+  - model_name: cloud
+    litellm_params:
+      model: claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+# ── Router Settings ───────────────────────────────────────────────────────────
+
+router_settings:
+  enable_pre_call_checks: true
+  redis_url: os.environ/REDIS_URL
+  routing_strategy: simple-shuffle
+  timeout: 120
+  stream_timeout: 60
+  num_retries: 2
+  retry_after: 5
+
+# ── Fallback Chain ────────────────────────────────────────────────────────────
+# If a model fails, escalate to next tier
+
+fallbacks:
+  - local: [mid]
+  - mid: [cloud]
+
+# ── Caching ───────────────────────────────────────────────────────────────────
+
+cache:
+  type: redis
+  ttl: 3600
+  similarity_threshold: 0.95
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+litellm_settings:
+  log_level: INFO
+  set_verbose: false
+  drop_params: true
