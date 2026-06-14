@@ -55,66 +55,6 @@ class RouteResult:
     timestamp: str
 
 
-# ── Configuration Loader ──────────────────────────────────────────────────────
-
-def load_routes_config(
-    config_path: Optional[Path] = None,
-) -> Dict[str, Any]:
-    """
-    Load route definitions from YAML config file.
-
-    Description: Reads routes.yaml and returns parsed configuration
-        containing route definitions and threshold settings.
-
-    :param config_path: Path to config file. Defaults to package's routes.yaml.
-    :return: Parsed configuration dictionary.
-    :raises FileNotFoundError: If config file does not exist.
-    :raises yaml.YAMLError: If config file is invalid YAML.
-    """
-    logger.info("In function load_routes_config: Entered")
-
-    if config_path is None:
-        config_path = DEFAULT_ROUTES_PATH
-
-    if not config_path.exists():
-        logger.error(f"In function load_routes_config: Config file not found at {config_path}")
-        raise FileNotFoundError(f"Routes config not found: {config_path}")
-
-    try:
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-        logger.info(f"In function load_routes_config: Loaded {len(config.get('routes', []))} routes")
-        return config
-    except yaml.YAMLError:
-        logger.exception("In function load_routes_config: Failed to parse YAML config")
-        raise
-
-
-def _build_routes(config: Dict[str, Any]) -> List[Route]:
-    """
-    Build Route objects from config dictionary.
-
-    Description: Converts route definitions from YAML into semantic_router
-        Route objects for use in RouteLayer.
-
-    :param config: Parsed routes.yaml configuration.
-    :return: List of Route objects.
-    """
-    logger.info("In function _build_routes: Entered")
-
-    routes = []
-    for route_def in config.get("routes", []):
-        route = Route(
-            name=route_def["name"],
-            utterances=route_def["utterances"],
-        )
-        routes.append(route)
-        logger.info(
-            f"In function _build_routes: Added route '{route_def['name']}' "
-            f"with {len(route_def['utterances'])} utterances"
-        )
-
-    return routes
 
 
 # ── Router Class ──────────────────────────────────────────────────────────────
@@ -139,8 +79,8 @@ class QueryRouter:
     ):
         logger.info("In class QueryRouter, function __init__: Entered")
 
-        self._config = load_routes_config(config_path)
-        self._routes = _build_routes(self._config)
+        self._config = self.load_routes_config(config_path)
+        self._routes = self._build_routes(self._config)
         self._encoder = self._init_encoder()
         self._sr_router = SRRouter(
             encoder=self._encoder,
@@ -172,6 +112,67 @@ class QueryRouter:
             f"cache={cache_status}"
         )
 
+    # ── Configuration Loader ──────────────────────────────────────────────────────
+    @staticmethod
+    def load_routes_config(
+            config_path: Optional[Path] = None,
+    ) -> Dict[str, Any]:
+        """
+        Load route definitions from YAML config file.
+
+        Description: Reads routes.yaml and returns parsed configuration
+            containing route definitions and threshold settings.
+
+        :param config_path: Path to config file. Defaults to package's routes.yaml.
+        :return: Parsed configuration dictionary.
+        :raises FileNotFoundError: If config file does not exist.
+        :raises yaml.YAMLError: If config file is invalid YAML.
+        """
+        logger.info("In function load_routes_config: Entered")
+
+        if config_path is None:
+            config_path = DEFAULT_ROUTES_PATH
+
+        if not config_path.exists():
+            logger.error(f"In function load_routes_config: Config file not found at {config_path}")
+            raise FileNotFoundError(f"Routes config not found: {config_path}")
+
+        try:
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+            logger.info(f"In function load_routes_config: Loaded {len(config.get('routes', []))} routes")
+            return config
+        except yaml.YAMLError:
+            logger.exception("In function load_routes_config: Failed to parse YAML config")
+            raise
+
+    @staticmethod
+    def _build_routes(config: Dict[str, Any]) -> List[Route]:
+        """
+        Build Route objects from config dictionary.
+
+        Description: Converts route definitions from YAML into semantic_router
+            Route objects for use in RouteLayer.
+
+        :param config: Parsed routes.yaml configuration.
+        :return: List of Route objects.
+        """
+        logger.info("In function _build_routes: Entered")
+
+        routes = []
+        for route_def in config.get("routes", []):
+            route = Route(
+                name=route_def["name"],
+                utterances=route_def["utterances"],
+            )
+            routes.append(route)
+            logger.info(
+                f"In function _build_routes: Added route '{route_def['name']}' "
+                f"with {len(route_def['utterances'])} utterances"
+            )
+
+        return routes
+
     def _init_encoder(self) -> FastEmbedEncoder:
         """
         Initialize the FastEmbed encoder.
@@ -192,10 +193,11 @@ class QueryRouter:
             else:
                 encoder = FastEmbedEncoder()
             logger.info("In class QueryRouter, function _init_encoder: Encoder initialized")
-            return encoder
+
         except Exception:
             logger.exception("In class QueryRouter, function _init_encoder: Failed to initialize encoder")
             raise
+        return encoder
 
     def _encode_query(self, query: str) -> np.ndarray:
         """
@@ -204,7 +206,11 @@ class QueryRouter:
         :param query: Query string to encode.
         :return: Embedding as numpy array.
         """
-        embeddings = self._encoder([query])
+        logger.info("In class QueryRouter, function _encode_query: Entered")
+        try:
+            embeddings = self._encoder([query])
+        except Exception as e:
+            raise
         return np.array(embeddings[0])
 
     def route(
