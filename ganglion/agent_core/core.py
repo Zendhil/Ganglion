@@ -155,6 +155,7 @@ class AgentCore:
         :param task: Task to execute.
         :return: Model tier string (local/mid/cloud).
         """
+        # Todo: Model selection shuld be on task complexity on not on token heuristic
         # Handle escalation from previous attempt
         if task._escalate:
             current = task._last_model or MODEL_LOCAL
