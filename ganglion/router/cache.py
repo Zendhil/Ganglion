@@ -11,6 +11,8 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+# from  sklearn.metrics.pairwise import cosine_similarity
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
