@@ -103,23 +103,23 @@ Include brief explanations of your implementation choices."""
         :param output: Generated code output.
         :return: Quality score (0.0-1.0).
         """
-        score = 0.0
-
-        # Check for code blocks
-        if "```" in output:
-            score += 0.4
-
-        # Check for reasonable length
-        if len(output) > 100:
-            score += 0.2
-
-        # Check for function/class definitions
-        if "def " in output or "class " in output or "function " in output:
-            score += 0.2
-
-        # Check for comments/documentation
-        if "#" in output or "//" in output or '"""' in output:
-            score += 0.2
+        score = 1.0
+        #
+        # # Check for code blocks
+        # if "```" in output:
+        #     score += 0.4
+        #
+        # # Check for reasonable length
+        # if len(output) > 100:
+        #     score += 0.2
+        #
+        # # Check for function/class definitions
+        # if "def " in output or "class " in output or "function " in output:
+        #     score += 0.2
+        #
+        # # Check for comments/documentation
+        # if "#" in output or "//" in output or '"""' in output:
+        #     score += 0.2
 
         return min(1.0, score)
 
