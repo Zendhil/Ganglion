@@ -61,7 +61,7 @@ class AgentCore:
     :param max_retries: Maximum retry attempts per task. Default: 3.
     :param success_threshold: Minimum score for task success. Default: 0.6.
     """
-
+    live_agents: dict[str, "AgentCore"] = {}
     def __init__(
         self,
         agent_id: str,
@@ -75,6 +75,7 @@ class AgentCore:
         logger.info(f"In class AgentCore, function __init__: Entered for agent_id={agent_id}")
 
         self.agent_id = agent_id
+        AgentCore.live_agents[agent_id] = self
         self.session_id = session_id
         self.interleaved_thinking = interleaved_thinking
         self.thinking_budget = thinking_budget

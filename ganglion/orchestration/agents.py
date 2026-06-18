@@ -36,6 +36,7 @@ class CodeAgent(AgentCore):
         interleaved_thinking: bool = False,
     ):
         logger.info(f"In class CodeAgent, function __init__: Entered")
+        #super.init registers the agent to AGentCore class variable and needs to be called.
         super().__init__(
             agent_id="code_agent",
             session_id=session_id,
