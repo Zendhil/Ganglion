@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def route_to_agent(
     state: OrchestratorState,
-) -> Literal["code_agent", "search_agent", "data_agent", "decompose"]:
+) -> AgentCore:
     """
     Route to appropriate agent based on route field.
 
