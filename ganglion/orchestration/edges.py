@@ -11,6 +11,7 @@ from typing import Literal
 
 # App imports
 from ganglion.orchestration.state import OrchestratorState
+from ganglion.agent_core import AgentCore
 
 logger = logging.getLogger(__name__)
 

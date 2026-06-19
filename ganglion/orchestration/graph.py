@@ -16,6 +16,7 @@ from typing import Any, Dict, Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 
+from agent_core import AgentCore
 # App imports
 from ganglion.orchestration.state import OrchestratorState, create_initial_state
 from ganglion.orchestration.nodes import (
@@ -77,59 +78,29 @@ def build_orchestration_graph() -> CompiledStateGraph:
     # Create state graph
     graph = StateGraph(OrchestratorState)
 
-    # ── Add nodes ─────────────────────────────────────────────────────────────
+    # fixed structural nodes — always present
+    graph.add_node("head_agent", AgentCore.get_agent("head_agent"))
+    graph.add_node("tail_agent", AgentCore.get_agent("tail_agent"))
 
-    graph.add_node("decompose", decompose_node)
-    graph.add_node("code_agent", code_agent_node)
-    graph.add_node("review_agent", review_agent_node)
-    graph.add_node("search_agent", search_agent_node)
-    graph.add_node("data_agent", data_agent_node)
-    graph.add_node("aggregate", aggregate_node)
+    # dynamic specialist nodes — everything else
+    specialist_ids = {
+        k for k in AgentCore.live_agents
+        if k not in ("head_agent", "tail_agent")
+    }
+    for agent_id in specialist_ids:
+        graph.add_node(agent_id, AgentCore.get_agent(agent_id))
 
-    # ── Add edges ─────────────────────────────────────────────────────────────
-
-    # Entry point: route based on semantic router result
+    # edges — fully dynamic, zero hardcoding
+    graph.add_edge(START, "head_agent")
     graph.add_conditional_edges(
-        START,
+        "head_agent",
         route_to_agent,
-        {
-            "code_agent": "code_agent",
-            "search_agent": "search_agent",
-            "data_agent": "data_agent",
-            "decompose": "decompose",
-        },
+        {k: k for k in specialist_ids},
     )
+    for agent_id in specialist_ids:
+        graph.add_edge(agent_id, "tail_agent")
 
-    # Decompose routes to appropriate agent flow
-    graph.add_conditional_edges(
-        "decompose",
-        route_by_task_type,
-        {
-            "code_flow": "code_agent",
-            "search_agent": "search_agent",
-            "data_agent": "data_agent",
-        },
-    )
-
-    # Code agent always goes to review
-    graph.add_edge("code_agent", "review_agent")
-
-    # Review agent: conditional loop or aggregate
-    graph.add_conditional_edges(
-        "review_agent",
-        should_continue_review,
-        {
-            "code_agent": "code_agent",
-            "aggregate": "aggregate",
-        },
-    )
-
-    # Search and data agents go directly to aggregate
-    graph.add_edge("search_agent", "aggregate")
-    graph.add_edge("data_agent", "aggregate")
-
-    # Aggregate goes to end
-    graph.add_edge("aggregate", END)
+    graph.add_edge("tail_agent", END)
 
     # ── Compile ───────────────────────────────────────────────────────────────
 
@@ -175,48 +146,32 @@ def build_parallel_graph() -> CompiledStateGraph:
 
     graph = StateGraph(OrchestratorState)
 
-    # Add nodes
-    graph.add_node("decompose", decompose_node)
-    graph.add_node("code_agent", code_agent_node)
-    graph.add_node("review_agent", review_agent_node)
-    graph.add_node("search_agent", search_agent_node)
-    graph.add_node("data_agent", data_agent_node)
-    graph.add_node("aggregate", aggregate_node)
+    specialist_ids = {
+        k for k in AgentCore.live_agents
+        if k not in ("head_agent", "tail_agent")
+    }
 
-    # Start with decomposition
-    graph.add_edge(START, "decompose")
+    # fixed structural nodes
+    graph.add_node("head_agent", AgentCore.get_agent("head_agent"))
+    graph.add_node("tail_agent", AgentCore.get_agent("tail_agent"))
 
-    # Decompose routes to the appropriate agent
+    # dynamic specialist nodes
+    for agent_id in specialist_ids:
+        graph.add_node(agent_id, AgentCore.get_agent(agent_id))
+
+    # edges
+    graph.add_edge(START, "head_agent")
     graph.add_conditional_edges(
-        "decompose",
+        "head_agent",
         _parallel_route,
-        {
-            "code_agent": "code_agent",
-            "search_agent": "search_agent",
-            "data_agent": "data_agent",
-        },
+        {k: k for k in specialist_ids},
     )
+    for agent_id in specialist_ids:
+        graph.add_edge(agent_id, "tail_agent")
 
-    # Code flow with review loop
-    graph.add_edge("code_agent", "review_agent")
-    graph.add_conditional_edges(
-        "review_agent",
-        should_continue_review,
-        {
-            "code_agent": "code_agent",
-            "aggregate": "aggregate",
-        },
-    )
-
-    # Direct agents to aggregate
-    graph.add_edge("search_agent", "aggregate")
-    graph.add_edge("data_agent", "aggregate")
-
-    # End
-    graph.add_edge("aggregate", END)
+    graph.add_edge("tail_agent", END)
 
     compiled = graph.compile()
-    logger.info("In function build_parallel_graph: Parallel graph compiled")
 
     return compiled
 
@@ -233,15 +188,12 @@ def _parallel_route(
     subtasks = state.get("subtasks", [])
 
     if not subtasks:
-        return "search_agent"
+        return "head_agent"
 
     first_task = subtasks[0]
-    agent = first_task.get("agent", "search_agent")
+    agent = first_task.get("agent", "head_agent")
 
-    if agent in ["code_agent", "search_agent", "data_agent"]:
-        return agent
-
-    return "search_agent"
+    return agent
 
 
 # ── Orchestrator Class ────────────────────────────────────────────────────────
