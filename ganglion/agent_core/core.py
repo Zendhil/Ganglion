@@ -539,3 +539,26 @@ class AgentCore:
         :return: AgentMetrics object.
         """
         return self.metrics
+
+    @classmethod
+    def get_agent(cls, agent_name: str, session_id: str) -> "AgentCore":
+        """
+        Get agent by name.
+
+        :param agent_name: Name of the agent (code_agent, review_agent, etc).
+        :param session_id: Session identifier.
+        :return: Agent instance.
+        :raises ValueError: If agent name is unknown.
+        """
+        # agents = {
+        #     "code_agent": lambda: CodeAgent(session_id),
+        #     "review_agent": lambda: ReviewAgent(session_id),
+        #     "search_agent": lambda: SearchAgent(session_id),
+        #     "data_agent": lambda: DataAgent(session_id),
+        # }
+
+        factory = cls.live_agents.get(agent_name)
+        if factory is None:
+            raise ValueError(f"Unknown agent: {agent_name}")
+
+        return factory()
