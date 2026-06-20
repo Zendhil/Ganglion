@@ -33,7 +33,7 @@ from ganglion.orchestration.nodes import (
     data_agent_node,
     aggregate_node,
 )
-from ganglion.orchestration.edges import (
+from ganglion.orchestration.router import (
     route_to_agent,
     should_continue_review,
     route_by_task_type,
