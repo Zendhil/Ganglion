@@ -35,167 +35,6 @@ from ganglion.orchestration.edges import (
 
 logger = logging.getLogger(__name__)
 
-
-# ── Graph Builder ─────────────────────────────────────────────────────────────
-
-def build_orchestration_graph() -> CompiledStateGraph:
-    """
-    Build the main orchestration state graph.
-
-    Description: Creates LangGraph with:
-        - Entry routing based on semantic router confidence
-        - Decomposition for complex/ambiguous queries
-        - Code → Review loop with conditional retry
-        - Direct paths for search and data agents
-        - Aggregation node for final output
-
-    Graph structure:
-        START
-          │
-          ▼
-        [route_to_agent] ──────────────────────┐
-          │                                    │
-          ├─→ code_agent ─→ review_agent ──────┤
-          │       ▲              │             │
-          │       └──── (retry) ─┘             │
-          │                                    │
-          ├─→ search_agent ────────────────────┤
-          │                                    │
-          ├─→ data_agent ──────────────────────┤
-          │                                    │
-          └─→ decompose ─→ [route_by_task] ────┘
-                                               │
-                                               ▼
-                                          aggregate
-                                               │
-                                               ▼
-                                              END
-
-    :return: Compiled LangGraph state graph.
-    """
-    logger.info("In function build_orchestration_graph: Building graph")
-
-    # Create state graph
-    graph = StateGraph(OrchestratorState)
-
-    # fixed structural nodes — always present
-    graph.add_node("head_agent", AgentCore.get_agent("head_agent"))
-    graph.add_node("tail_agent", AgentCore.get_agent("tail_agent"))
-
-    # dynamic specialist nodes — everything else
-    specialist_ids = {
-        k for k in AgentCore.live_agents
-        if k not in ("head_agent", "tail_agent")
-    }
-    for agent_id in specialist_ids:
-        graph.add_node(agent_id, AgentCore.get_agent(agent_id))
-
-    # edges — fully dynamic, zero hardcoding
-    graph.add_edge(START, "head_agent")
-    graph.add_conditional_edges(
-        "head_agent",
-        route_to_agent,
-        {k: k for k in specialist_ids},
-    )
-    for agent_id in specialist_ids:
-        graph.add_edge(agent_id, "tail_agent")
-
-    graph.add_edge("tail_agent", END)
-
-    # ── Compile ───────────────────────────────────────────────────────────────
-
-    compiled = graph.compile()
-    logger.info("In function build_orchestration_graph: Graph compiled successfully")
-
-    return compiled
-
-
-# ── Parallel Execution Graph ──────────────────────────────────────────────────
-
-def build_parallel_graph() -> CompiledStateGraph:
-    """
-    Build graph with parallel execution branches.
-
-    Description: For queries that can benefit from parallel agent
-        execution (e.g., search + code simultaneously). Uses LangGraph's
-        native parallel branches for concurrent execution.
-
-    Graph structure:
-        START
-          │
-          ▼
-        decompose
-          │
-          ├─→ code_agent ─→ review_agent ─┐
-          │       ▲              │        │
-          │       └──── (retry) ─┘        │
-          │                               │
-          ├─→ search_agent ───────────────┤
-          │                               │
-          └─→ data_agent ─────────────────┤
-                                          │
-                                          ▼
-                                      aggregate
-                                          │
-                                          ▼
-                                         END
-
-    :return: Compiled LangGraph with parallel branches.
-    """
-    logger.info("In function build_parallel_graph: Building parallel graph")
-
-    graph = StateGraph(OrchestratorState)
-
-    specialist_ids = {
-        k for k in AgentCore.live_agents
-        if k not in ("head_agent", "tail_agent")
-    }
-
-    # fixed structural nodes
-    graph.add_node("head_agent", AgentCore.get_agent("head_agent"))
-    graph.add_node("tail_agent", AgentCore.get_agent("tail_agent"))
-
-    # dynamic specialist nodes
-    for agent_id in specialist_ids:
-        graph.add_node(agent_id, AgentCore.get_agent(agent_id))
-
-    # edges
-    graph.add_edge(START, "head_agent")
-    graph.add_conditional_edges(
-        "head_agent",
-        _parallel_route,
-        {k: k for k in specialist_ids},
-    )
-    for agent_id in specialist_ids:
-        graph.add_edge(agent_id, "tail_agent")
-
-    graph.add_edge("tail_agent", END)
-
-    compiled = graph.compile()
-
-    return compiled
-
-
-def _parallel_route(
-    state: OrchestratorState,
-) -> Literal["code_agent", "search_agent", "data_agent"]:
-    """
-    Determine which agent to route to based on subtasks.
-
-    :param state: Current state.
-    :return: Agent node name.
-    """
-    subtasks = state.get("subtasks", [])
-
-    if not subtasks:
-        return "head_agent"
-
-    first_task = subtasks[0]
-    agent = first_task.get("agent", "head_agent")
-
-    return agent
-
-
 # ── Orchestrator Class ────────────────────────────────────────────────────────
 
 class Orchestrator:
@@ -210,11 +49,7 @@ class Orchestrator:
 
     def __init__(self, use_parallel: bool = False):
         logger.info(f"In class Orchestrator, function __init__: parallel={use_parallel}")
-
-        if use_parallel:
-            self._graph = build_parallel_graph()
-        else:
-            self._graph = build_orchestration_graph()
+        self._graph = self.build_orchestration_graph(use_parallel)
 
     def run(
         self,
@@ -314,3 +149,97 @@ class Orchestrator:
     def graph(self) -> CompiledStateGraph:
         """Get the underlying compiled graph."""
         return self._graph
+
+    @staticmethod
+    def _parallel_route(
+            state: OrchestratorState,
+    ) -> AgentCore:
+        """
+        Determine which agent to route to based on subtasks.
+
+        :param state: Current state.
+        :return: Agent node name.
+        """
+        subtasks = state.get("subtasks", [])
+
+        if not subtasks:
+            return "head_agent"
+
+        first_task = subtasks[0]
+        agent = first_task.get("agent", "head_agent")
+
+        return agent
+
+    # ── Graph Builder ─────────────────────────────────────────────────────────────
+    def build_orchestration_graph(use_parallel=None) -> CompiledStateGraph:
+        """
+        Build the main orchestration state graph.
+
+        Description: Creates LangGraph with:
+            - Entry routing based on semantic router confidence
+            - Decomposition for complex/ambiguous queries
+            - Code → Review loop with conditional retry
+            - Direct paths for search and data agents
+            - Aggregation node for final output
+
+        Graph structure:
+            START
+              │
+              ▼
+            [route_to_agent] ──────────────────────┐
+              │                                    │
+              ├─→ code_agent ─→ review_agent ──────┤
+              │       ▲              │             │
+              │       └──── (retry) ─┘             │
+              │                                    │
+              ├─→ search_agent ────────────────────┤
+              │                                    │
+              ├─→ data_agent ──────────────────────┤
+              │                                    │
+              └─→ decompose ─→ [route_by_task] ────┘
+                                                   │
+                                                   ▼
+                                              aggregate
+                                                   │
+                                                   ▼
+                                                  END
+
+        :return: Compiled LangGraph state graph.
+        """
+        logger.info("In function build_orchestration_graph: Building graph")
+
+        # Create state graph
+        graph = StateGraph(OrchestratorState)
+
+        # fixed structural nodes — always present
+        graph.add_node("head_agent", AgentCore.get_agent("head_agent"))
+        graph.add_node("tail_agent", AgentCore.get_agent("tail_agent"))
+
+        # dynamic specialist nodes — everything else
+        specialist_ids = {
+            k for k in AgentCore.live_agents
+            if k not in ("head_agent", "tail_agent")
+        }
+        for agent_id in specialist_ids:
+            graph.add_node(agent_id, AgentCore.get_agent(agent_id))
+
+        # edges — fully dynamic, zero hardcoding
+        graph.add_edge(START, "head_agent")
+        call_router = _parallel_route if use_parallel else route_to_agent
+        graph.add_conditional_edges(
+            "head_agent",
+            call_router,
+            {k: k for k in specialist_ids},
+        )
+        for agent_id in specialist_ids:
+            graph.add_edge(agent_id, "tail_agent")
+
+        graph.add_edge("tail_agent", END)
+
+        # ── Compile ───────────────────────────────────────────────────────────────
+
+        compiled = graph.compile()
+        logger.info("In function build_orchestration_graph: Graph compiled successfully")
+
+        return compiled
+
