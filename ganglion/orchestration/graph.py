@@ -19,14 +19,7 @@ from langgraph.graph.state import CompiledStateGraph
 from agents_hub import AgentCore
 # App imports
 from ganglion.orchestration.state import OrchestratorState, create_initial_state
-from ganglion.orchestration.nodes import (
-    decompose_node,
-    code_agent_node,
-    review_agent_node,
-    search_agent_node,
-    data_agent_node,
-    aggregate_node,
-)
+
 from ganglion.orchestration.edges import (
     route_to_agent,
     should_continue_review,
@@ -171,7 +164,7 @@ class Orchestrator:
         return agent
 
     # ── Graph Builder ─────────────────────────────────────────────────────────────
-    def build_orchestration_graph(use_parallel=None) -> CompiledStateGraph:
+    def build_orchestration_graph(self, use_parallel=None) -> CompiledStateGraph:
         """
         Build the main orchestration state graph.
 
@@ -225,7 +218,7 @@ class Orchestrator:
 
         # edges — fully dynamic, zero hardcoding
         graph.add_edge(START, "head_agent")
-        call_router = _parallel_route if use_parallel else route_to_agent
+        call_router = self._parallel_route if use_parallel else route_to_agent
         graph.add_conditional_edges(
             "head_agent",
             call_router,
