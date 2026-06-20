@@ -38,7 +38,7 @@ from ganglion.orchestration.router import (
     should_continue_review,
     route_by_task_type,
 )
-from ganglion.orchestration.graph import (
+from ganglion.orchestration.orchestrator import (
     build_orchestration_graph,
     build_parallel_graph,
     Orchestrator,

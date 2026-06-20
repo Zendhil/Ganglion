@@ -125,7 +125,7 @@ def test_graph_compilation():
     """Test that graph compiles without errors."""
     print("\n--- Test: Graph Compilation ---")
 
-    from ganglion.orchestration.graph import build_orchestration_graph, build_parallel_graph
+    from ganglion.orchestration.orchestrator import build_orchestration_graph, build_parallel_graph
 
     # Test main graph
     graph1 = build_orchestration_graph()
@@ -143,7 +143,7 @@ def test_orchestrator_with_mock():
     """Test orchestrator with mocked LLM calls."""
     print("\n--- Test: Orchestrator (Mocked) ---")
 
-    from ganglion.orchestration.graph import Orchestrator
+    from ganglion.orchestration.orchestrator import Orchestrator
     from ganglion.orchestration.state import create_initial_state
 
     # Mock litellm
