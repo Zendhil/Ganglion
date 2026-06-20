@@ -143,7 +143,7 @@ class Orchestrator:
         return self._graph
 
     # ── Graph Builder ─────────────────────────────────────────────────────────────
-    def build_orchestration_graph(self, use_parallel=None) -> CompiledStateGraph:
+    def build_orchestration_graph(self, use_parallel:bool=False) -> CompiledStateGraph:
         """
         Build the main orchestration state graph.
 
@@ -197,10 +197,10 @@ class Orchestrator:
 
         # edges — fully dynamic, zero hardcoding
         graph.add_edge(START, "head_agent")
-        call_router = self._parallel_route if use_parallel else route_to_agent
+        route_to_agent,
         graph.add_conditional_edges(
             "head_agent",
-            call_router,
+            route_to_agent,
             {k: k for k in specialist_ids},
         )
         for agent_id in specialist_ids:
