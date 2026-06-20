@@ -5,7 +5,7 @@ Description: Tests AgentCore base class with a simple test agent.
     Verifies metrics, escalation, and basic execution flow.
 
 Usage:
-    python -m ganglion.agent_core.test_core
+    python -m ganglion.agents_hub.test_core
 """
 
 # Standard library imports
@@ -13,9 +13,9 @@ import logging
 from unittest.mock import patch, MagicMock
 
 # App imports
-from ganglion.agent_core.core import AgentCore
-from ganglion.agent_core.models import Task, TaskResult
-from ganglion.agent_core.memory import InMemoryStore
+from ganglion.agents_hub.core import AgentCore
+from ganglion.agents_hub.models import Task, TaskResult
+from ganglion.agents_hub.memory import InMemoryStore
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ def test_run_task_with_mock() -> bool:
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message.content = "This is a success response"
 
-    with patch("ganglion.agent_core.core.litellm") as mock_litellm:
+    with patch("ganglion.agents_hub.core.litellm") as mock_litellm:
         mock_litellm.completion.return_value = mock_response
         mock_litellm.completion_cost.return_value = 0.001
 

@@ -172,7 +172,7 @@ def hello():
             return mock_response
         return mock_review_response
 
-    with patch("ganglion.agent_core.core.litellm") as mock_litellm:
+    with patch("ganglion.agents_hub.core.litellm") as mock_litellm:
         mock_litellm.completion.side_effect = mock_completion
         mock_litellm.completion_cost.return_value = 0.001
 

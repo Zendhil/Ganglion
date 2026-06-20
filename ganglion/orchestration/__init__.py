@@ -18,7 +18,7 @@ from ganglion.orchestration.state import (
     CodeReviewState,
     create_initial_state,
 )
-from ganglion.orchestration.agents import (
+from agents_hub.agents import (
     CodeAgent,
     ReviewAgent,
     SearchAgent,

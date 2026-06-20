@@ -16,8 +16,8 @@ import anthropic
 import litellm
 
 # App imports
-from ganglion.agent_core.models import Task, TaskResult, AgentMetrics
-from ganglion.agent_core.memory import MemoryStub, AbstractMemory
+from ganglion.agents_hub.models import Task, TaskResult, AgentMetrics
+from ganglion.agents_hub.memory import MemoryStub, AbstractMemory
 
 logger = logging.getLogger(__name__)
 

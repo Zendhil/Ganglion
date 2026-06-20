@@ -16,7 +16,7 @@ from typing import Any, Dict, Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 
-from agent_core import AgentCore
+from agents_hub import AgentCore
 # App imports
 from ganglion.orchestration.state import OrchestratorState, create_initial_state
 from ganglion.orchestration.nodes import (

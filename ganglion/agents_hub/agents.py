@@ -11,7 +11,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 # App imports
-from ganglion.agent_core import AgentCore, Task, TaskResult
+from ganglion.agents_hub import AgentCore, Task, TaskResult
 
 logger = logging.getLogger(__name__)
 

@@ -6,14 +6,13 @@ Description: Wraps AgentCore instances as LangGraph-compatible node
 """
 
 # Standard library imports
-import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 # App imports
-from ganglion.agent_core import Task
+from ganglion.agents_hub import Task
 from ganglion.orchestration.state import OrchestratorState, SubTask, TaskResultDict, CodeReviewState
-from ganglion.orchestration.agents import CodeAgent, ReviewAgent, SearchAgent, DataAgent, get_agent
+from agents_hub.agents import CodeAgent, ReviewAgent, SearchAgent, DataAgent, get_agent
 
 logger = logging.getLogger(__name__)
 
