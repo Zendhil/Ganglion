@@ -21,7 +21,7 @@ from agents_hub import AgentCore
 from ganglion.orchestration.state import OrchestratorState, create_initial_state
 
 
-from ganglion.orchestration.edges import (
+from ganglion.orchestration.router import (
     route_to_agent,
     route_by_task_type,
 )

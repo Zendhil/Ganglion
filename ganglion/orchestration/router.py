@@ -18,6 +18,50 @@ logger = logging.getLogger(__name__)
 
 # ── Route Selection Edge ──────────────────────────────────────────────────────
 
+
+
+
+# # ── Code Review Loop Edge ─────────────────────────────────────────────────────
+#
+# def should_continue_review(
+#     state: OrchestratorState,
+# ) -> Literal["code_agent", "aggregate"]:
+#     """
+#     Decide whether to retry code generation or proceed to aggregation.
+#
+#     Description: Implements the code → review loop logic:
+#         - If review passed: proceed to aggregate
+#         - If review failed and retries < max: loop back to code_agent
+#         - If max retries reached: proceed to aggregate anyway
+#
+#     :param state: Current orchestration state.
+#     :return: Name of next node.
+#     """
+#     code_review = state.get("code_review", {})
+#     review_passed = code_review.get("review_passed", False)
+#     retry_count = code_review.get("retry_count", 0)
+#     max_retries = code_review.get("max_retries", 2)
+#
+#     logger.info(
+#         f"In function should_continue_review: passed={review_passed}, "
+#         f"retry_count={retry_count}, max_retries={max_retries}"
+#     )
+#
+#     if review_passed:
+#         logger.info("In function should_continue_review: Review passed, aggregating")
+#         return "aggregate"
+#
+#     if retry_count < max_retries:
+#         logger.info(
+#             f"In function should_continue_review: Retry {retry_count + 1}/{max_retries}"
+#         )
+#         return "code_agent"
+#
+#     logger.info("In function should_continue_review: Max retries reached, aggregating")
+#     return "aggregate"
+
+
+# ── Task Type Edge ────────────────────────────────────────────────────────────
 def route_to_agent(
     state: OrchestratorState,
 ) -> AgentCore:
@@ -55,48 +99,24 @@ def route_to_agent(
     # Unknown or head_agent route - decompose
     return "decompose"
 
-
-# ── Code Review Loop Edge ─────────────────────────────────────────────────────
-
-def should_continue_review(
-    state: OrchestratorState,
-) -> Literal["code_agent", "aggregate"]:
+def _parallel_route(
+        state: OrchestratorState,
+) -> AgentCore:
     """
-    Decide whether to retry code generation or proceed to aggregation.
+    Determine which agent to route to based on subtasks.
 
-    Description: Implements the code → review loop logic:
-        - If review passed: proceed to aggregate
-        - If review failed and retries < max: loop back to code_agent
-        - If max retries reached: proceed to aggregate anyway
-
-    :param state: Current orchestration state.
-    :return: Name of next node.
+    :param state: Current state.
+    :return: Agent node name.
     """
-    code_review = state.get("code_review", {})
-    review_passed = code_review.get("review_passed", False)
-    retry_count = code_review.get("retry_count", 0)
-    max_retries = code_review.get("max_retries", 2)
+    subtasks = state.get("subtasks", [])
 
-    logger.info(
-        f"In function should_continue_review: passed={review_passed}, "
-        f"retry_count={retry_count}, max_retries={max_retries}"
-    )
+    if not subtasks:
+        return "head_agent"
 
-    if review_passed:
-        logger.info("In function should_continue_review: Review passed, aggregating")
-        return "aggregate"
+    first_task = subtasks[0]
+    agent = first_task.get("agent", "head_agent")
 
-    if retry_count < max_retries:
-        logger.info(
-            f"In function should_continue_review: Retry {retry_count + 1}/{max_retries}"
-        )
-        return "code_agent"
-
-    logger.info("In function should_continue_review: Max retries reached, aggregating")
-    return "aggregate"
-
-
-# ── Task Type Edge ────────────────────────────────────────────────────────────
+    return agent
 
 def route_by_task_type(
     state: OrchestratorState,

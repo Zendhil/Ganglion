@@ -44,7 +44,7 @@ def test_edge_routing():
     print("\n--- Test: Edge Routing ---")
 
     from ganglion.orchestration.state import create_initial_state
-    from ganglion.orchestration.edges import route_to_agent, should_continue_review
+    from ganglion.orchestration.router import route_to_agent, should_continue_review
 
     # High confidence code route
     state1 = create_initial_state(
@@ -198,7 +198,7 @@ def test_code_review_loop():
     """Test code → review retry loop."""
     print("\n--- Test: Code Review Loop ---")
 
-    from ganglion.orchestration.edges import should_continue_review
+    from ganglion.orchestration.router import should_continue_review
     from ganglion.orchestration.state import create_initial_state, CodeReviewState
 
     # Simulate retry loop states
