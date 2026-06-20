@@ -20,12 +20,11 @@ from agents_hub import AgentCore
 # App imports
 from ganglion.orchestration.state import OrchestratorState, create_initial_state
 
+
 from ganglion.orchestration.edges import (
     route_to_agent,
-    should_continue_review,
     route_by_task_type,
 )
-
 logger = logging.getLogger(__name__)
 
 # ── Orchestrator Class ────────────────────────────────────────────────────────
@@ -142,26 +141,6 @@ class Orchestrator:
     def graph(self) -> CompiledStateGraph:
         """Get the underlying compiled graph."""
         return self._graph
-
-    @staticmethod
-    def _parallel_route(
-            state: OrchestratorState,
-    ) -> AgentCore:
-        """
-        Determine which agent to route to based on subtasks.
-
-        :param state: Current state.
-        :return: Agent node name.
-        """
-        subtasks = state.get("subtasks", [])
-
-        if not subtasks:
-            return "head_agent"
-
-        first_task = subtasks[0]
-        agent = first_task.get("agent", "head_agent")
-
-        return agent
 
     # ── Graph Builder ─────────────────────────────────────────────────────────────
     def build_orchestration_graph(self, use_parallel=None) -> CompiledStateGraph:
