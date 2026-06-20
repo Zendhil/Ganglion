@@ -112,10 +112,16 @@ class OrchestratorState(TypedDict):
     :param query: Original user query.
     :param route: Routing decision from semantic router.
     :param confidence: Routing confidence score.
+    :param specialist_available: Whether a specialist agent is available for this query.
+    :param handled_by: Which agent handled the query (for tracking).
+    :param warning: Warning message (e.g., fallback used).
+    :param next_agent: Next agent to execute (set by head_agent).
+    :param needs_decomposition: Whether query needs decomposition.
     :param subtasks: Decomposed subtasks from head agent.
     :param current_task_id: Currently executing task ID.
     :param results: Map of task_id → TaskResultDict.
     :param messages: Conversation history for context.
+    :param output: Output from individual agent (before aggregation).
     :param final_output: Aggregated final response.
     :param error: Error message if workflow failed.
     :param session_id: Session identifier for metrics.
@@ -126,10 +132,16 @@ class OrchestratorState(TypedDict):
     query: str
     route: str
     confidence: float
+    specialist_available: bool
+    handled_by: str
+    warning: Optional[str]
+    next_agent: str
+    needs_decomposition: bool
     subtasks: List[SubTask]
     current_task_id: str
     results: Annotated[Dict[str, TaskResultDict], merge_results]
     messages: Annotated[List[Dict[str, Any]], append_messages]
+    output: str
     final_output: str
     error: Optional[str]
     session_id: str
@@ -158,10 +170,16 @@ def create_initial_state(
         query=query,
         route=route,
         confidence=confidence,
+        specialist_available=True,
+        handled_by="",
+        warning=None,
+        next_agent="",
+        needs_decomposition=False,
         subtasks=[],
         current_task_id="",
         results={},
         messages=[],
+        output="",
         final_output="",
         error=None,
         session_id=session_id,

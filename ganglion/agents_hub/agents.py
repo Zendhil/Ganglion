@@ -1,8 +1,8 @@
 """
 Specialist agent implementations for orchestration.
 
-Description: Defines CodeAgent and ReviewAgent that extend AgentCore.
-    These are wrapped as LangGraph nodes in nodes.py.
+Description: Defines all agent classes that extend AgentCore.
+    Includes structural agents (Head, Tail) and specialist agents (Code, Review, Search, Data).
 """
 
 # Standard library imports
@@ -12,8 +12,121 @@ from typing import Any, Dict, List, Optional
 
 # App imports
 from ganglion.agents_hub import AgentCore, Task, TaskResult
+from ganglion.agents_hub.prompts import (
+    HEAD_AGENT_PROMPT,
+    TAIL_AGENT_PROMPT,
+    CODE_AGENT_PROMPT,
+    REVIEW_AGENT_PROMPT,
+    SEARCH_AGENT_PROMPT,
+    DATA_AGENT_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# ── Head Agent ────────────────────────────────────────────────────────────────
+
+class HeadAgent(AgentCore):
+    """
+    Head agent - entry point for orchestration.
+
+    Description: Responsible for initial query processing, routing validation,
+        decomposition of complex queries, and fallback handling when no
+        specialist is available.
+
+    :param session_id: Session identifier for metrics.
+    """
+
+    def __init__(self, session_id: str):
+        logger.info(f"In class HeadAgent, function __init__: Entered")
+        super().__init__(
+            agent_id="head_agent",
+            session_id=session_id,
+            interleaved_thinking=True,
+            thinking_budget=8000,
+        )
+
+    @property
+    def system_prompt(self) -> str:
+        return HEAD_AGENT_PROMPT
+
+    @property
+    def tools(self) -> List[Dict[str, Any]]:
+        return []
+
+    def score_output(self, task: Task, output: str) -> float:
+        """Score decomposition or fallback output quality."""
+        if "decompose" in task.content.lower():
+            try:
+                result = json.loads(output)
+                if "needs_decomposition" in result:
+                    return 1.0
+                if "subtasks" in result and isinstance(result["subtasks"], list):
+                    return 0.9
+                return 0.6
+            except json.JSONDecodeError:
+                return 0.3
+        if len(output) > 50:
+            return 0.8
+        return 0.5
+
+    def select_model(self, task: Task) -> str:
+        """Select model tier for orchestration tasks."""
+        if task._escalate:
+            return "cloud"
+        if "decompose" in task.content.lower():
+            return "cloud"
+        return "mid"
+
+    def _decompose_query(self, query: str) -> List[Dict[str, Any]]:
+        """Decompose a complex query into subtasks."""
+        logger.info(f"In class HeadAgent, function _decompose_query: Decomposing query")
+        decompose_task = Task(id="decompose", content=f"Decompose this complex query into subtasks: {query}")
+        result = self.run_task(decompose_task)
+        try:
+            decomposition = json.loads(result.output)
+            subtasks = decomposition.get("subtasks", [])
+            logger.info(f"In class HeadAgent, function _decompose_query: Generated {len(subtasks)} subtasks")
+            return subtasks
+        except json.JSONDecodeError:
+            logger.warning("In class HeadAgent, function _decompose_query: Failed to parse JSON")
+            return []
+
+    def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph node function."""
+        query = state["query"]
+        route = state.get("route", "")
+        confidence = state.get("confidence", 0.0)
+
+        logger.info(f"In class HeadAgent, function __call__: route={route}, confidence={confidence:.2f}")
+
+        # Case 1: Low confidence - decompose
+        if confidence < 0.45:
+            logger.info("In class HeadAgent, function __call__: Low confidence, decomposing")
+            subtasks = self._decompose_query(query)
+            state["subtasks"] = subtasks
+            state["needs_decomposition"] = True
+            state["specialist_available"] = True
+            return state
+
+        # Case 2: No specialist - fallback
+        if route == "head_agent" or route not in AgentCore.live_agents:
+            logger.warning(f"In class HeadAgent, function __call__: No specialist for route: {route}")
+            fallback_task = Task(id="fallback", content=query)
+            fallback_result = self.run_task(fallback_task)
+            state["output"] = fallback_result.output
+            state["specialist_available"] = False
+            state["handled_by"] = "head_agent_fallback"
+            state["warning"] = "No specialist agent available for this query type"
+            state["total_cost_usd"] = state.get("total_cost_usd", 0.0) + fallback_result.cost_usd
+            return state
+
+        # Case 3: Valid specialist
+        logger.info(f"In class HeadAgent, function __call__: Routing to {route}")
+        state["specialist_available"] = True
+        state["next_agent"] = route
+        state["needs_decomposition"] = False
+        return state
 
 
 # ── Code Agent ────────────────────────────────────────────────────────────────
@@ -46,18 +159,7 @@ class CodeAgent(AgentCore):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an expert software engineer. Your task is to write clean,
-efficient, and well-documented code.
-
-When given a coding task:
-1. Understand the requirements clearly
-2. Plan your approach before coding
-3. Write clean, readable code with appropriate comments
-4. Follow best practices and design patterns
-5. Consider edge cases and error handling
-
-Return your code in markdown code blocks with the appropriate language tag.
-Include brief explanations of your implementation choices."""
+        return CODE_AGENT_PROMPT
 
     @property
     def tools(self) -> List[Dict[str, Any]]:
@@ -176,24 +278,7 @@ class ReviewAgent(AgentCore):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an expert code reviewer. Review the provided code for:
-
-1. **Correctness**: Does the code do what it's supposed to?
-2. **Code Quality**: Is it readable, maintainable, and well-structured?
-3. **Best Practices**: Does it follow language idioms and patterns?
-4. **Security**: Are there any security vulnerabilities?
-5. **Edge Cases**: Are edge cases handled properly?
-
-Respond with a JSON object:
-{
-    "passed": true/false,
-    "score": 0.0-1.0,
-    "summary": "Brief overall assessment",
-    "issues": ["list of specific issues found"],
-    "suggestions": ["list of improvement suggestions"]
-}
-
-Be constructive but thorough. Only pass code that meets quality standards."""
+        return REVIEW_AGENT_PROMPT
 
     @property
     def tools(self) -> List[Dict[str, Any]]:
@@ -292,16 +377,7 @@ class SearchAgent(AgentCore):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an expert research assistant. Your task is to find and
-synthesize information based on user queries.
-
-When given a search task:
-1. Identify key concepts and search terms
-2. Retrieve relevant information
-3. Synthesize findings into a clear summary
-4. Cite sources when available
-
-Provide comprehensive but concise answers."""
+        return SEARCH_AGENT_PROMPT
 
     @property
     def tools(self) -> List[Dict[str, Any]]:
@@ -362,16 +438,7 @@ class DataAgent(AgentCore):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an expert data engineer and analyst. Your task is to
-work with databases, transform data, and perform analysis.
-
-When given a data task:
-1. Understand the data schema and requirements
-2. Write efficient queries or transformations
-3. Validate results and handle edge cases
-4. Explain your approach clearly
-
-Return SQL queries, transformation code, or analysis results as appropriate."""
+        return DATA_AGENT_PROMPT
 
     @property
     def tools(self) -> List[Dict[str, Any]]:
@@ -405,6 +472,88 @@ Return SQL queries, transformation code, or analysis results as appropriate."""
         return min(1.0, score + 0.1)
 
 
+# ── Tail Agent ────────────────────────────────────────────────────────────────
+
+class TailAgent(AgentCore):
+    """
+    Tail agent - final aggregation and formatting.
+
+    Description: Responsible for aggregating results from specialist agents,
+        formatting final output, and propagating warnings from fallback cases.
+
+    :param session_id: Session identifier for metrics.
+    """
+
+    def __init__(self, session_id: str):
+        logger.info(f"In class TailAgent, function __init__: Entered")
+        super().__init__(
+            agent_id="tail_agent",
+            session_id=session_id,
+            interleaved_thinking=False,  # Simple aggregation, no thinking needed
+        )
+
+    @property
+    def system_prompt(self) -> str:
+        return TAIL_AGENT_PROMPT
+
+    @property
+    def tools(self) -> List[Dict[str, Any]]:
+        return []
+
+    def score_output(self, task: Task, output: str) -> float:
+        """Score aggregation output quality."""
+        if len(output) > 100:
+            return 0.9
+        if len(output) > 50:
+            return 0.7
+        return 0.5
+
+    def select_model(self, task: Task) -> str:
+        """Select model tier for aggregation."""
+        if task._escalate:
+            return "cloud"
+        # Simple aggregation can use local/mid tier
+        return "mid"
+
+    def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph node function."""
+        logger.info("In class TailAgent, function __call__: Aggregating results")
+
+        # Check if head agent handled fallback
+        if not state.get("specialist_available", True):
+            # Fallback case - head agent already provided output
+            final_output = state.get("output", "")
+            warning = state.get("warning", "")
+            if warning:
+                final_output = f"{final_output}\n\n⚠️  {warning}"
+            state["final_output"] = final_output
+            logger.info("In class TailAgent, function __call__: Propagated fallback response")
+            return state
+
+        # Check if decomposition was used
+        if state.get("needs_decomposition", False):
+            # Aggregate subtask results
+            results = state.get("results", {})
+            if results:
+                # Combine results from all subtasks
+                combined = "\n\n".join([str(r.get("output", "")) for r in results.values()])
+                state["final_output"] = combined
+            logger.info("In class TailAgent, function __call__: Aggregated decomposed results")
+            return state
+
+        # Normal case - aggregate specialist result
+        results = state.get("results", {})
+        if results:
+            # Take the first (and likely only) result
+            first_result = next(iter(results.values()), {})
+            state["final_output"] = first_result.get("output", "")
+        else:
+            # No results - fallback
+            state["final_output"] = "No results generated"
+            state["warning"] = "No specialist results available"
+
+        logger.info("In class TailAgent, function __call__: Completed aggregation")
+        return state
 
 
 

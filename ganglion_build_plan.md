@@ -14,7 +14,7 @@ A multi-agent system with three clear layers:
 
 Memory is a **stub** for now — interface defined, implementation deferred.
 
-No LangChain / LangGraph needed. Plain Python + Anthropic SDK + two pip installs.
+Core dependencies: Python + LiteLLM (universal LLM routing) + semantic-router + LangGraph (orchestration).
 
 ---
 
@@ -701,10 +701,122 @@ Use interleaved_thinking=True for HeadAgent and test on a decomposition task.
 ## Key principles
 
 1. **Loop in agent-core, not in specialists** — measurement is consistent everywhere
-2. **`interleaved_thinking` is a param, not a hardcode** — toggle per agent, per session
-3. **Router routes to agents · agents route to models** — separate concerns
-4. **Memory is a stub** — interface fixed now, implementation later, zero agent changes
-5. **One change at a time** — autoresearch ratchet, keep or revert
-6. **Measure leakage per agent** — score every task, not just final output
-7. **Local first, cloud on complexity** — cost discipline from day one
-8. **No LangChain / LangGraph** — plain Python + Anthropic SDK + LiteLLM
+2. **Router routes to agents · agents route to models** — separate concerns (QueryRouter + LiteLLM)
+3. **Memory is a stub** — interface fixed now, implementation later, zero agent changes
+4. **One change at a time** — autoresearch ratchet, keep or revert
+5. **Measure leakage per agent** — score every task, not just final output
+6. **Local first, cloud on complexity** — cost discipline from day one
+7. **LiteLLM for all LLM calls** — universal router, works with any model
+8. **Dynamic agent discovery** — zero hardcoding, agents self-register
+
+---
+
+## Current Architecture (LangGraph Implementation)
+
+### Overview
+
+The architecture evolved from the original "plain Python" design to include LangGraph for orchestration while maintaining the core principles.
+
+**Stack:**
+- **LiteLLM**: Universal LLM router (local → mid → cloud tiers)
+- **semantic-router**: Query classification with FastEmbed
+- **LangGraph**: State graph orchestration
+- **AgentCore**: Base agent loop (measurement, retries, escalation)
+
+### Package Structure
+
+```
+ganglion/
+├── router/                  # Semantic routing
+│   ├── routes.py           # QueryRouter (semantic-router wrapper)
+│   ├── cache.py            # Semantic caching
+│   ├── config.py           # LiteLLM config loader
+│   └── routes.yaml         # Route definitions
+├── agents_hub/             # Agent implementations
+│   ├── core.py            # AgentCore base class
+│   ├── agents.py          # HeadAgent, TailAgent, specialists
+│   ├── prompts.py         # System prompts (separated for readability)
+│   ├── models.py          # Task, TaskResult, AgentMetrics
+│   └── memory.py          # AbstractMemory interface + stub
+└── orchestration/         # LangGraph workflow
+    ├── orchestrator.py    # Orchestrator class (graph builder)
+    └── state.py           # OrchestratorState schema
+```
+
+### Agent Flow
+
+```
+User Query
+    ↓
+Orchestrator.run()
+    ↓
+QueryRouter.route(query) → RouteResult(route, confidence)
+    ↓
+Create initial state with route/confidence
+    ↓
+START → HeadAgent
+    ↓
+HeadAgent checks confidence & route:
+  - confidence < 0.45 → decompose query
+  - route unknown → FALLBACK (answer with default model + warning)
+  - route valid → route to specialist
+    ↓
+Conditional edge from HeadAgent:
+  - specialist_available=False → TailAgent (head handled it)
+  - needs_decomposition=True → TailAgent
+  - Otherwise → Specialist (code/search/data/review)
+    ↓
+TailAgent aggregates & formats
+    ↓
+END → Final result with metrics & warnings
+```
+
+### Agent Registry Pattern
+
+All agents self-register in `AgentCore.live_agents` on instantiation:
+
+```python
+class AgentCore:
+    live_agents: dict[str, "AgentCore"] = {}
+
+    def __init__(self, agent_id: str, ...):
+        AgentCore.live_agents[agent_id] = self
+```
+
+The orchestrator dynamically discovers agents:
+```python
+for agent_id in AgentCore.live_agents.keys():
+    graph.add_node(agent_id, AgentCore.get_agent(agent_id))
+```
+
+**No hardcoded agent lists** — graph adapts to available agents.
+
+### Routing Separation
+
+**QueryRouter** (router package):
+- Semantic matching: query → agent (cosine similarity on utterances)
+- Returns: route name + confidence score
+- Stateless, reusable
+
+**HeadAgent** (orchestration):
+- Receives route from QueryRouter
+- Orchestration logic: decomposition, fallback, validation
+- Updates state for graph execution
+
+### Fallback Mechanism
+
+When no specialist is available (unknown query type):
+1. HeadAgent answers using default LiteLLM model
+2. Sets `specialist_available=False` in state
+3. Adds warning: `"No specialist agent available for this query type"`
+4. TailAgent propagates warning to user
+
+Users always get an answer, but with transparency about specialist availability.
+
+### Future: Parallel Execution
+
+Designed for future LangGraph Send API integration:
+- State schema includes `subtasks` and `results` fields
+- HeadAgent can decompose queries into parallel subtasks
+- TailAgent aggregates parallel results
+- Currently deferred — sequential execution only

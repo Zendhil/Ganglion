@@ -12,7 +12,6 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 # Third party imports
-import anthropic
 import litellm
 
 # App imports
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-DEFAULT_THINKING_BUDGET = 5000
+DEFAULT_THINKING_BUDGET = 5000  # Deprecated - kept for compatibility
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_SUCCESS_THRESHOLD = 0.6
 DEFAULT_MAX_CONTEXT_MESSAGES = 20
@@ -33,13 +32,6 @@ MODEL_LOCAL = "local"
 MODEL_MID = "mid"
 MODEL_CLOUD = "cloud"
 
-# Claude model for thinking mode
-CLAUDE_THINKING_MODEL = "claude-sonnet-4-6"
-
-# Cost per million tokens (Claude Sonnet 4)
-CLAUDE_INPUT_COST_PER_M = 3.0
-CLAUDE_OUTPUT_COST_PER_M = 15.0
-
 
 # ── Agent Core Class ──────────────────────────────────────────────────────────
 
@@ -47,16 +39,14 @@ class AgentCore:
     """
     Base class for all agents. Extend this — do not modify the loop.
 
-    Description: Provides the core execution loop with LLM calls, metrics,
-        retries, and optional interleaved thinking. Specialist agents
-        override: system_prompt, tools, score_output(), select_model().
+    Description: Provides the core execution loop with LLM calls via LiteLLM,
+        metrics, retries, and escalation. Specialist agents override:
+        system_prompt, tools, score_output(), select_model().
 
     :param agent_id: Unique name for this agent instance.
     :param session_id: Session identifier for grouping metrics.
-    :param interleaved_thinking: If True, use Anthropic SDK with thinking
-        enabled. Requires cloud model to be Claude. Default: False.
-    :param thinking_budget: Max tokens for thinking blocks per call.
-        Only used when interleaved_thinking=True. Default: 5000.
+    :param interleaved_thinking: DEPRECATED - kept for compatibility, no effect.
+    :param thinking_budget: DEPRECATED - kept for compatibility, no effect.
     :param memory: Memory backend instance. Defaults to MemoryStub.
     :param max_retries: Maximum retry attempts per task. Default: 3.
     :param success_threshold: Minimum score for task success. Default: 0.6.
@@ -91,15 +81,8 @@ class AgentCore:
         # Conversation context (sliding window)
         self.context: List[Dict[str, Any]] = []
 
-        # Initialize Anthropic client for thinking mode
-        if interleaved_thinking:
-            self._anthropic = anthropic.Anthropic()
-            logger.info(
-                f"In class AgentCore, function __init__: Interleaved thinking enabled "
-                f"with budget={thinking_budget}"
-            )
-        else:
-            self._anthropic = None
+        # Note: interleaved_thinking parameter kept for compatibility but not used
+        # All LLM calls go through LiteLLM
 
         logger.info(
             f"In class AgentCore, function __init__: Initialized agent_id={agent_id}, "
@@ -216,13 +199,9 @@ class AgentCore:
                 # Build messages
                 messages = self._build_messages(task)
 
-                # Call LLM
-                if self.interleaved_thinking and model == MODEL_CLOUD:
-                    output, cost = self._call_with_thinking(messages)
-                    thinking_used = True
-                else:
-                    output, cost = self._call_litellm(model, messages)
-                    thinking_used = False
+                # Call LLM via LiteLLM
+                output, cost = self._call_litellm(model, messages)
+                thinking_used = False
 
                 latency = (time.monotonic() - t0) * 1000
                 score = self.score_output(task, output)
@@ -343,113 +322,7 @@ class AgentCore:
 
         return output, cost
 
-    def _call_with_thinking(
-        self,
-        messages: List[Dict[str, Any]],
-    ) -> Tuple[str, float]:
-        """
-        LLM call with interleaved thinking via Anthropic SDK.
-
-        Description: Uses Claude's extended thinking feature. Model reasons
-            between tool calls. Loop continues until stop_reason is 'end_turn'.
-
-        :param messages: Message list for completion.
-        :return: Tuple of (output_text, cost_usd).
-        """
-        logger.info("In class AgentCore, function _call_with_thinking: Entered")
-
-        output_text = ""
-        total_input = 0
-        total_output = 0
-        msgs = list(messages)
-
-        while True:
-            response = self._anthropic.messages.create(
-                model=CLAUDE_THINKING_MODEL,
-                max_tokens=16000,
-                thinking={
-                    "type": "enabled",
-                    "budget_tokens": self.thinking_budget,
-                },
-                tools=self._convert_tools_for_anthropic(),
-                system=self.system_prompt,
-                messages=msgs,
-            )
-
-            total_input += response.usage.input_tokens
-            total_output += response.usage.output_tokens
-
-            # Process response content blocks
-            for block in response.content:
-                if block.type == "text":
-                    output_text += block.text
-                elif block.type == "thinking":
-                    # Log thinking but don't include in output
-                    logger.debug(f"Thinking block: {block.thinking[:100]}...")
-
-            if response.stop_reason == "end_turn":
-                break
-
-            if response.stop_reason == "tool_use":
-                tool_results = self._execute_tools(response.content)
-                msgs.append({"role": "assistant", "content": response.content})
-                msgs.append({"role": "user", "content": tool_results})
-
-        # Calculate cost (Claude Sonnet 4: $3/M input, $15/M output)
-        cost = (total_input * CLAUDE_INPUT_COST_PER_M + total_output * CLAUDE_OUTPUT_COST_PER_M) / 1_000_000
-
-        logger.info(
-            f"In class AgentCore, function _call_with_thinking: Completed "
-            f"output_len={len(output_text)}, cost=${cost:.6f}"
-        )
-
-        return output_text, cost
-
-    def _convert_tools_for_anthropic(self) -> List[Dict[str, Any]]:
-        """
-        Convert OpenAI-format tools to Anthropic format.
-
-        :return: Tools in Anthropic API format.
-        """
-        if not self.tools:
-            return []
-
-        anthropic_tools = []
-        for tool in self.tools:
-            if tool.get("type") == "function":
-                func = tool["function"]
-                anthropic_tools.append({
-                    "name": func["name"],
-                    "description": func.get("description", ""),
-                    "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
-                })
-
-        return anthropic_tools
-
-    def _execute_tools(
-        self,
-        content_blocks: List[Any],
-    ) -> List[Dict[str, Any]]:
-        """
-        Execute tool_use blocks and return tool_result list.
-
-        Description: Calls execute_tool() for each tool_use block.
-            Override execute_tool() in subclass for actual implementation.
-
-        :param content_blocks: Response content blocks from Claude.
-        :return: List of tool_result dicts.
-        """
-        results = []
-        for block in content_blocks:
-            if hasattr(block, "type") and block.type == "tool_use":
-                tool_output = self.execute_tool(block.name, block.input)
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": tool_output,
-                })
-
-        return results
+    # NOTE: Anthropic SDK thinking mode removed - all LLM calls go through LiteLLM
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -541,24 +414,17 @@ class AgentCore:
         return self.metrics
 
     @classmethod
-    def get_agent(cls, agent_name: str, session_id: str) -> "AgentCore":
+    def get_agent(cls, agent_name: str, session_id: str = "") -> "AgentCore":
         """
-        Get agent by name.
+        Get agent by name from the live_agents registry.
 
         :param agent_name: Name of the agent (code_agent, review_agent, etc).
-        :param session_id: Session identifier.
+        :param session_id: Session identifier (unused, kept for compatibility).
         :return: Agent instance.
         :raises ValueError: If agent name is unknown.
         """
-        # agents = {
-        #     "code_agent": lambda: CodeAgent(session_id),
-        #     "review_agent": lambda: ReviewAgent(session_id),
-        #     "search_agent": lambda: SearchAgent(session_id),
-        #     "data_agent": lambda: DataAgent(session_id),
-        # }
-
-        factory = cls.live_agents.get(agent_name)
-        if factory is None:
+        instance = cls.live_agents.get(agent_name)
+        if instance is None:
             raise ValueError(f"Unknown agent: {agent_name}")
 
-        return factory()
+        return instance

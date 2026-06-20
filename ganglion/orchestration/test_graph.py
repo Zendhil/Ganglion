@@ -3,6 +3,12 @@ Test script for LangGraph orchestration.
 
 Description: Tests the orchestration graph with mocked agent calls.
 
+⚠️ TODO: These tests need to be updated for the new architecture:
+- router.py has been deleted (routing moved to QueryRouter + HeadAgent)
+- nodes.py doesn't exist (agents are nodes directly)
+- Orchestrator now requires session_id parameter
+- New state fields: specialist_available, handled_by, warning, next_agent
+
 Usage:
     python -m ganglion.orchestration.test_graph
 """
@@ -13,6 +19,8 @@ from unittest.mock import patch, MagicMock
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+# NOTE: Tests below are currently broken and need updating
 
 
 def test_state_creation():

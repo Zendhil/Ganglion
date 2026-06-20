@@ -6,9 +6,10 @@ Description: Provides LangGraph-based orchestration layer that wraps
 
 Features:
     - AgentCore wrapped as LangGraph nodes (no modifications to core)
-    - State graph for head agent dispatch logic
-    - Code → Review conditional loop with max 2 retries
-    - Parallel execution support via LangGraph branches
+    - Dynamic agent discovery from AgentCore.live_agents registry
+    - QueryRouter integration for semantic routing
+    - Fallback handling when no specialist available
+    - Future: Parallel execution support via LangGraph Send API
 """
 
 from ganglion.orchestration.state import (
@@ -18,31 +19,15 @@ from ganglion.orchestration.state import (
     CodeReviewState,
     create_initial_state,
 )
-from agents_hub.agents import (
+from ganglion.agents_hub.agents import (
+    HeadAgent,
+    TailAgent,
     CodeAgent,
     ReviewAgent,
     SearchAgent,
     DataAgent,
-    get_agent,
 )
-from ganglion.orchestration.nodes import (
-    decompose_node,
-    code_agent_node,
-    review_agent_node,
-    search_agent_node,
-    data_agent_node,
-    aggregate_node,
-)
-from ganglion.orchestration.router import (
-    route_to_agent,
-    should_continue_review,
-    route_by_task_type,
-)
-from ganglion.orchestration.orchestrator import (
-    build_orchestration_graph,
-    build_parallel_graph,
-    Orchestrator,
-)
+from ganglion.orchestration.orchestrator import Orchestrator
 
 __all__ = [
     # State
@@ -52,24 +37,12 @@ __all__ = [
     "CodeReviewState",
     "create_initial_state",
     # Agents
+    "HeadAgent",
+    "TailAgent",
     "CodeAgent",
     "ReviewAgent",
     "SearchAgent",
     "DataAgent",
-    "get_agent",
-    # Nodes
-    "decompose_node",
-    "code_agent_node",
-    "review_agent_node",
-    "search_agent_node",
-    "data_agent_node",
-    "aggregate_node",
-    # Edges
-    "route_to_agent",
-    "should_continue_review",
-    "route_by_task_type",
-    # Graph
-    "build_orchestration_graph",
-    "build_parallel_graph",
+    # Orchestrator
     "Orchestrator",
 ]

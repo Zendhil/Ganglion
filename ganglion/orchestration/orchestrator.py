@@ -16,15 +16,11 @@ from typing import Any, Dict, Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 
-from agents_hub import AgentCore
 # App imports
+from ganglion.agents_hub import AgentCore
 from ganglion.orchestration.state import OrchestratorState, create_initial_state
+from ganglion.router.routes import route_query
 
-
-from ganglion.orchestration.router import (
-    route_to_agent,
-    route_by_task_type,
-)
 logger = logging.getLogger(__name__)
 
 # ── Orchestrator Class ────────────────────────────────────────────────────────
@@ -36,17 +32,19 @@ class Orchestrator:
     Description: Wraps the compiled state graph and provides
         a simple interface for query execution.
 
-    :param use_parallel: Whether to use parallel execution graph.
+    :param session_id: Session identifier for all agents.
+    :param use_parallel: Whether to use parallel execution (future implementation).
     """
 
-    def __init__(self, use_parallel: bool = False):
-        logger.info(f"In class Orchestrator, function __init__: parallel={use_parallel}")
-        self._graph = self.build_orchestration_graph(use_parallel)
+    def __init__(self, session_id: str, use_parallel: bool = False):
+        logger.info(f"In class Orchestrator, function __init__: session_id={session_id}, parallel={use_parallel}")
+        self.session_id = session_id
+        self.use_parallel = use_parallel
+        self._graph = self.build_orchestration_graph()
 
     def run(
         self,
         query: str,
-        session_id: str,
         route: str = "",
         confidence: float = 0.0,
     ) -> Dict[str, Any]:
@@ -54,16 +52,25 @@ class Orchestrator:
         Execute orchestration for a query.
 
         :param query: User query string.
-        :param session_id: Session identifier.
-        :param route: Pre-determined route (optional).
+        :param route: Pre-determined route (optional, will call QueryRouter if not provided).
         :param confidence: Routing confidence (optional).
         :return: Final state with results.
         """
         logger.info(f"In class Orchestrator, function run: query_len={len(query)}")
 
+        # Get routing decision from QueryRouter if not provided
+        if not route:
+            route_result = route_query(query)
+            route = route_result.route
+            confidence = route_result.confidence
+            logger.info(
+                f"In class Orchestrator, function run: QueryRouter decision: "
+                f"route={route}, confidence={confidence:.2f}"
+            )
+
         initial_state = create_initial_state(
             query=query,
-            session_id=session_id,
+            session_id=self.session_id,
             route=route,
             confidence=confidence,
         )
@@ -81,7 +88,6 @@ class Orchestrator:
     async def arun(
         self,
         query: str,
-        session_id: str,
         route: str = "",
         confidence: float = 0.0,
     ) -> Dict[str, Any]:
@@ -89,16 +95,21 @@ class Orchestrator:
         Execute orchestration asynchronously.
 
         :param query: User query string.
-        :param session_id: Session identifier.
         :param route: Pre-determined route (optional).
         :param confidence: Routing confidence (optional).
         :return: Final state with results.
         """
         logger.info(f"In class Orchestrator, function arun: query_len={len(query)}")
 
+        # Get routing decision from QueryRouter if not provided
+        if not route:
+            route_result = route_query(query)
+            route = route_result.route
+            confidence = route_result.confidence
+
         initial_state = create_initial_state(
             query=query,
-            session_id=session_id,
+            session_id=self.session_id,
             route=route,
             confidence=confidence,
         )
@@ -111,7 +122,6 @@ class Orchestrator:
     def stream(
         self,
         query: str,
-        session_id: str,
         route: str = "",
         confidence: float = 0.0,
     ):
@@ -119,16 +129,21 @@ class Orchestrator:
         Stream orchestration execution for a query.
 
         :param query: User query string.
-        :param session_id: Session identifier.
         :param route: Pre-determined route (optional).
         :param confidence: Routing confidence (optional).
         :yields: State updates as graph executes.
         """
         logger.info(f"In class Orchestrator, function stream: query_len={len(query)}")
 
+        # Get routing decision from QueryRouter if not provided
+        if not route:
+            route_result = route_query(query)
+            route = route_result.route
+            confidence = route_result.confidence
+
         initial_state = create_initial_state(
             query=query,
-            session_id=session_id,
+            session_id=self.session_id,
             route=route,
             confidence=confidence,
         )
@@ -143,38 +158,29 @@ class Orchestrator:
         return self._graph
 
     # ── Graph Builder ─────────────────────────────────────────────────────────────
-    def build_orchestration_graph(self, use_parallel:bool=False) -> CompiledStateGraph:
+    def build_orchestration_graph(self) -> CompiledStateGraph:
         """
         Build the main orchestration state graph.
 
         Description: Creates LangGraph with:
-            - Entry routing based on semantic router confidence
-            - Decomposition for complex/ambiguous queries
-            - Code → Review loop with conditional retry
-            - Direct paths for search and data agents
-            - Aggregation node for final output
+            - START → head_agent (receives route from QueryRouter)
+            - head_agent validates route and handles fallback
+            - Conditional routing to specialists based on head_agent decision
+            - All specialists → tail_agent for aggregation
+            - tail_agent → END
 
         Graph structure:
             START
               │
               ▼
-            [route_to_agent] ──────────────────────┐
-              │                                    │
-              ├─→ code_agent ─→ review_agent ──────┤
-              │       ▲              │             │
-              │       └──── (retry) ─┘             │
-              │                                    │
-              ├─→ search_agent ────────────────────┤
-              │                                    │
-              ├─→ data_agent ──────────────────────┤
-              │                                    │
-              └─→ decompose ─→ [route_by_task] ────┘
-                                                   │
-                                                   ▼
-                                              aggregate
-                                                   │
-                                                   ▼
-                                                  END
+            head_agent ─────────┐
+              │                 │
+              ├─→ specialist ───┤
+              │                 │
+              └─→ tail_agent ───┘
+                      │
+                      ▼
+                     END
 
         :return: Compiled LangGraph state graph.
         """
@@ -183,26 +189,44 @@ class Orchestrator:
         # Create state graph
         graph = StateGraph(OrchestratorState)
 
-        # fixed structural nodes — always present
-        graph.add_node("head_agent", AgentCore.get_agent("head_agent"))
-        graph.add_node("tail_agent", AgentCore.get_agent("tail_agent"))
+        # Get all registered agents dynamically
+        for agent_id in AgentCore.live_agents.keys():
+            agent_instance = AgentCore.get_agent(agent_id)
+            graph.add_node(agent_id, agent_instance)
+            logger.info(f"In function build_orchestration_graph: Added node {agent_id}")
 
-        # dynamic specialist nodes — everything else
+        # Define conditional routing function from head_agent
+        def route_from_head(state: OrchestratorState) -> str:
+            """Routes based on HeadAgent's decision."""
+            # If specialist not available, head already handled it → go to tail
+            if not state.get("specialist_available", True):
+                logger.info("In route_from_head: No specialist, routing to tail_agent")
+                return "tail_agent"
+
+            # If needs decomposition, head will handle subtasks → go to tail
+            if state.get("needs_decomposition", False):
+                logger.info("In route_from_head: Needs decomposition, routing to tail_agent")
+                return "tail_agent"
+
+            # Otherwise route to specialist
+            next_agent = state.get("next_agent", "tail_agent")
+            logger.info(f"In route_from_head: Routing to specialist: {next_agent}")
+            return next_agent
+
+        # Edges: START → head_agent
+        graph.add_edge(START, "head_agent")
+
+        # Dynamic routing from head_agent
         specialist_ids = {
             k for k in AgentCore.live_agents
             if k not in ("head_agent", "tail_agent")
         }
-        for agent_id in specialist_ids:
-            graph.add_node(agent_id, AgentCore.get_agent(agent_id))
+        route_map = {agent_id: agent_id for agent_id in specialist_ids}
+        route_map["tail_agent"] = "tail_agent"  # Fallback path
 
-        # edges — fully dynamic, zero hardcoding
-        graph.add_edge(START, "head_agent")
-        route_to_agent,
-        graph.add_conditional_edges(
-            "head_agent",
-            route_to_agent,
-            {k: k for k in specialist_ids},
-        )
+        graph.add_conditional_edges("head_agent", route_from_head, route_map)
+
+        # All specialists route to tail_agent
         for agent_id in specialist_ids:
             graph.add_edge(agent_id, "tail_agent")
 
