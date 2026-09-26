@@ -135,10 +135,20 @@ class AgentCore:
 
         Description: Override in subclass for domain-specific complexity
             signals. Default uses token count heuristic with escalation.
+            Supports forced model via task.metadata["force_model"].
 
         :param task: Task to execute.
-        :return: Model tier string (local/mid/cloud).
+        :return: Model tier string (local/mid/cloud) or direct model name.
         """
+        # Check for default model in metadata
+        if task.metadata and "default_model" in task.metadata:
+            default_model = task.metadata["default_model"]
+            logger.info(
+                f"In class AgentCore, function select_model: "
+                f"Using default model: {default_model}"
+            )
+            return default_model
+
         # Todo: Model selection shuld be on task complexity on not on token heuristic
         # Handle escalation from previous attempt
         if task._escalate:

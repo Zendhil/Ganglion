@@ -447,3 +447,41 @@ When contributing:
 ---
 
 **Built with:** Python • LiteLLM • semantic-router • LangGraph • Anthropic Claude
+
+flowchart TD
+    %% Core objects
+    A[Agent] -->|creates| T[Task]
+    T -->|receives| O[Observation]
+    O -->|fed to| P[Policy Network]
+    P -->|outputs| A1[Action]
+    A1 -->|sent to| E[Environment]
+    E -->|returns| R[Reward & Next Observation]
+
+    %% Training loop
+    subgraph Training Loop
+        direction LR
+        R -->|store in| B[Replay Buffer]
+        B -->|sample batch| S[Batch]
+        S -->|train| P
+    end
+
+    %% Task manager & scheduler
+    TM[Task Manager] -->|queues| T
+    TM -->|dispatches| A
+    TM -->|monitors| C[Task Completion]
+    C -->|updates| TM
+
+    %% Optional components
+    M[Metrics Logger] -->|log| R
+    M -->|log| A1
+    M -->|log| C
+
+    %% Connections
+    A -->|registers with| TM
+    TM -->|reports to| M
+
+    %% Styling
+    classDef core fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef aux fill:#bbf,stroke:#333,stroke-width:1px;
+    class A,T,P,E,B,TM core;
+    class O,R,S,C,M aux;

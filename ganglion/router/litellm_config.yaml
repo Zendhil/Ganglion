@@ -1,5 +1,4 @@
-# LiteLLM Configuration for Ganglion
-#
+# LiteLLM Configuration for Ganglion1#
 # Maps model tier labels to actual model endpoints.
 # Agents call select_model() which returns: local, mid, or cloud
 # LiteLLM resolves these to actual API endpoints.
@@ -8,6 +7,12 @@
 #   DEEPSEEK_KEY - API key for DeepSeek
 #   ANTHROPIC_API_KEY - API key for Anthropic Claude
 #   REDIS_URL - Redis connection URL for semantic cache (optional)
+
+# ── Default Models ────────────────────────────────────────────────────────────
+# Default models for specific tasks - can be overridden per agent
+
+model_default:
+  default: ollama/llama3.1:latest  # Default model for general tasks
 
 model_list:
   # ── Local tier ──────────────────────────────────────────────────────────────

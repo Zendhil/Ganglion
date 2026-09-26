@@ -72,25 +72,156 @@ class HeadAgent(AgentCore):
 
     def select_model(self, task: Task) -> str:
         """Select model tier for orchestration tasks."""
+        # Check for default model in metadata first
+        if task.metadata and "default_model" in task.metadata:
+            return task.metadata["default_model"]
+
         if task._escalate:
             return "cloud"
         if "decompose" in task.content.lower():
             return "cloud"
         return "mid"
 
-    def _decompose_query(self, query: str) -> List[Dict[str, Any]]:
-        """Decompose a complex query into subtasks."""
+    def _decompose_query(self, query: str) -> List[Task]:
+        """
+        Decompose a complex query into subtasks using dedicated prompt.
+
+        Description: Uses llama3.1:latest model and DECOMPOSE_TASK_PROMPT
+            to generate validated subtasks with proper agent assignment.
+
+        :param query: User query to decompose.
+        :return: List of Task objects with metadata for agent routing.
+        """
         logger.info(f"In class HeadAgent, function _decompose_query: Decomposing query")
-        decompose_task = Task(id="decompose", content=f"Decompose this complex query into subtasks: {query}")
+
+        # Import the dedicated decomposition prompt
+        from ganglion.agents_hub.prompts import DECOMPOSE_TASK_PROMPT
+
+        # Create decomposition task with full prompt
+        decompose_content = f"{DECOMPOSE_TASK_PROMPT}\n\n{query}"
+        decompose_task = Task(
+            id="decompose",
+            content=decompose_content,
+            metadata={"default_model": "ollama/llama3.1:latest"}
+        )
+
+        # Run task with forced model
         result = self.run_task(decompose_task)
+
         try:
-            decomposition = json.loads(result.output)
-            subtasks = decomposition.get("subtasks", [])
-            logger.info(f"In class HeadAgent, function _decompose_query: Generated {len(subtasks)} subtasks")
-            return subtasks
-        except json.JSONDecodeError:
-            logger.warning("In class HeadAgent, function _decompose_query: Failed to parse JSON")
+            # Parse JSON output
+            output = result.output.strip()
+
+            # Handle markdown code blocks if present
+            if "```json" in output:
+                start = output.find("```json") + 7
+                end = output.find("```", start)
+                if end > start:
+                    output = output[start:end].strip()
+            elif "```" in output:
+                start = output.find("```") + 3
+                end = output.find("```", start)
+                if end > start:
+                    output = output[start:end].strip()
+
+            decomposition = json.loads(output)
+            raw_subtasks = decomposition.get("subtasks", [])
+
+            if not raw_subtasks:
+                logger.warning("In class HeadAgent, function _decompose_query: No subtasks generated")
+                return []
+
+            # Validate and clean up subtasks
+            validated_subtasks = self._validate_subtasks(raw_subtasks)
+
+            logger.info(
+                f"In class HeadAgent, function _decompose_query: "
+                f"Generated {len(validated_subtasks)} validated subtasks"
+            )
+            return validated_subtasks
+
+        except json.JSONDecodeError as e:
+            logger.warning(
+                f"In class HeadAgent, function _decompose_query: "
+                f"Failed to parse JSON: {e}, output={result.output[:200]}"
+            )
             return []
+        except Exception as e:
+            logger.exception(
+                f"In class HeadAgent, function _decompose_query: Unexpected error: {e}"
+            )
+            return []
+
+    def _validate_subtasks(self, subtasks: List[Dict[str, Any]]) -> List[Task]:
+        """
+        Validate and normalize subtasks against SubTask schema.
+
+        Description: Ensures all subtasks have required fields, valid agents,
+            and initializes status to 'pending'. Falls back invalid agents to head_agent.
+            Returns Task objects.
+
+        :param subtasks: Raw subtask dictionaries from LLM.
+        :return: List of validated Task objects.
+        """
+        validated = []
+
+        for i, task_dict in enumerate(subtasks):
+            try:
+                # Ensure required fields exist
+                task_id = task_dict.get("id", f"task_{i+1}")
+                content = task_dict.get("content", "")
+                agent = task_dict.get("agent", "head_agent")
+                depends_on = task_dict.get("depends_on", [])
+
+                # Validate content is not empty
+                if not content or not content.strip():
+                    logger.warning(
+                        f"In class HeadAgent, function _validate_subtasks: "
+                        f"Skipping task {task_id} with empty content"
+                    )
+                    continue
+
+                # Validate agent exists in live_agents
+                if agent not in AgentCore.live_agents:
+                    logger.warning(
+                        f"In class HeadAgent, function _validate_subtasks: "
+                        f"Agent '{agent}' not found for task {task_id}, falling back to head_agent"
+                    )
+                    agent = "head_agent"
+
+                # Ensure depends_on is a list
+                if not isinstance(depends_on, list):
+                    logger.warning(
+                        f"In class HeadAgent, function _validate_subtasks: "
+                        f"Invalid depends_on for task {task_id}, defaulting to []"
+                    )
+                    depends_on = []
+
+                # Create Task object with metadata for agent and dependencies
+                validated_task = Task(
+                    id=task_id,
+                    content=content,
+                    metadata={
+                        "agent": agent,
+                        "depends_on": depends_on,
+                        "status": "pending"
+                    }
+                )
+
+                validated.append(validated_task)
+                logger.info(
+                    f"In class HeadAgent, function _validate_subtasks: "
+                    f"Validated task {task_id} -> agent={agent}"
+                )
+
+            except Exception as e:
+                logger.exception(
+                    f"In class HeadAgent, function _validate_subtasks: "
+                    f"Error validating task at index {i}: {e}"
+                )
+                continue
+
+        return validated
 
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """LangGraph node function."""
@@ -104,6 +235,22 @@ class HeadAgent(AgentCore):
         if confidence < 0.45:
             logger.info("In class HeadAgent, function __call__: Low confidence, decomposing")
             subtasks = self._decompose_query(query)
+
+            # If decomposition failed, fall back to direct response
+            if not subtasks:
+                logger.warning(
+                    "In class HeadAgent, function __call__: "
+                    "Decomposition failed, providing direct fallback"
+                )
+                fallback_task = Task(id="fallback", content=query)
+                fallback_result = self.run_task(fallback_task)
+                state["output"] = fallback_result.output
+                state["specialist_available"] = False
+                state["handled_by"] = "head_agent_fallback"
+                state["warning"] = "Task decomposition failed, provided general response"
+                state["total_cost_usd"] = state.get("total_cost_usd", 0.0) + fallback_result.cost_usd
+                return state
+
             state["subtasks"] = subtasks
             state["needs_decomposition"] = True
             state["specialist_available"] = True
