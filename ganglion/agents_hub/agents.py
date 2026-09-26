@@ -58,7 +58,22 @@ class HeadAgent(AgentCore):
         """Score decomposition or fallback output quality."""
         if "decompose" in task.content.lower():
             try:
-                result = json.loads(output)
+                # Try to parse JSON directly first
+                output_stripped = output.strip()
+
+                # Handle markdown code blocks
+                if "```json" in output_stripped:
+                    start = output_stripped.find("```json") + 7
+                    end = output_stripped.find("```", start)
+                    if end > start:
+                        output_stripped = output_stripped[start:end].strip()
+                elif "```" in output_stripped:
+                    start = output_stripped.find("```") + 3
+                    end = output_stripped.find("```", start)
+                    if end > start:
+                        output_stripped = output_stripped[start:end].strip()
+
+                result = json.loads(output_stripped)
                 if "needs_decomposition" in result:
                     return 1.0
                 if "subtasks" in result and isinstance(result["subtasks"], list):
